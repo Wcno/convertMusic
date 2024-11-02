@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Convertidor de YouTube a MP3</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Convertidor de YouTube a MP3</h1>
+        <form action="/convert" method="POST">
+            <input type="text" name="url" placeholder="Ingresa la URL del video de YouTube" required>
+            <button type="submit" onclick="startLoading()">Convertir a MP3</button>
+            <div id="progress-container" style="display:none; margin-top: 20px;">
+                <p id="status">Cargando...</p>
+                <div id="progress-bar" style="width: 0%; height: 20px; background-color: green; transition: width 0.3s;"></div>
+            </div>
+        </form>
+        {% if error %}
+            <p class="error">{{ error }}</p>
+        {% endif %}
+        <h3>By: Wilcno</h3>
+    </div>
+  
+</div>
+</body>
+<script>
+    function startLoading() {
+        // Mostrar la barra de progreso y establecer su estado inicial
+        const progressContainer = document.getElementById("progress-container");
+        const progressBar = document.getElementById("progress-bar");
+        const statusText = document.getElementById("status");
+
+        progressContainer.style.display = "block";
+        progressBar.style.width = "0%";
+        statusText.innerText = "Cargando...";
+
+        // Simular el progreso
+        let progress = 0;
+        const interval = setInterval(() => {
+            progress += 5;
+            progressBar.style.width = progress + "%";
+
+            if (progress >= 100) {
+                clearInterval(interval);
+                statusText.innerText = "Completado.";
+            }
+        }, 300);  // Incrementa el progreso cada 100 ms
+    }
+</script>
+</html>
