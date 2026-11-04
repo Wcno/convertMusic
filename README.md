@@ -43,9 +43,10 @@ Open <http://127.0.0.1:5000>.
 
 ## Deploy to Vercel
 
-The repo is ready for Vercel's zero-config Flask support:
+The repo is ready for Vercel:
 
-- `app.py` exposes the Flask `app`, which Vercel detects automatically.
+- `api/index.py` imports the Flask `app`, and `vercel.json` rewrites every path to it.
+- `package.json` only pins Node.js 24 for Vercel's build tooling (the app itself is Python).
 - `vercel.json` allows each request up to 60 seconds and leaves tests and docs out of the bundle. That is plenty for songs. For long videos, turn on **Fluid compute** in Vercel → Project → Settings → Functions, then raise `maxDuration` to 300 and set `MAX_DURATION_SECONDS`.
 - `.python-version` pins Python 3.12.
 
@@ -117,7 +118,8 @@ templates/index.html
 static/styles.css   Rack-unit design
 static/app.js       Preview, stream reading, progress meter and download
 tests/              pytest suite (fake downloader, no network)
-vercel.json         Function duration and bundle exclusions
+api/index.py        Vercel entry point (imports app)
+vercel.json         Function duration, bundled files, rewrite to api/index.py
 ```
 
 `converter.convert(url, quality)` is the core: it yields progress events and then one result whose file stays on disk until the generator finishes. A test can pass `downloader=` to replace yt-dlp.
