@@ -1,11 +1,8 @@
 {
   "name": "convert-music",
   "private": true,
-  "description": "Python/Flask app. npm only pins Node.js for Vercel's build and fetches the Linux Deno binary that yt-dlp uses to read YouTube.",
+  "description": "Python/Flask app. This file only pins the Node.js version Vercel's build tooling uses.",
   "engines": {
     "node": "24.x"
-  },
-  "optionalDependencies": {
-    "@deno/linux-x64-glibc": "2.9.6"
   }
 }

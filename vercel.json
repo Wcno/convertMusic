@@ -1,10 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "npm install --no-audit --no-fund",
   "functions": {
     "api/index.py": {
       "maxDuration": 60,
-      "includeFiles": "{app.py,converter.py,templates/**,static/**,node_modules/@deno/linux-x64-glibc/deno}",
+      "includeFiles": "{app.py,converter.py,templates/**,static/**}",
       "excludeFiles": "{tests/**,scripts/**,docs/**,mp3_files/**,.impeccable/**,.venv/**,**/__pycache__/**}"
     }
   },

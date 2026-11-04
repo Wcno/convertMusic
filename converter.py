@@ -20,12 +20,17 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import os
+import platform
 import queue
 import re
 import shutil
+import sys
 import tempfile
 import threading
+import urllib.request
+import zipfile
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -185,8 +190,6 @@ def friendly_error(exc: BaseException) -> str:
 # yt-dlp setup
 # --------------------------------------------------------------------------- #
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-
 
 def _ensure_executable(path: str | None) -> str | None:
     """Return a runnable copy of a bundled binary.
@@ -220,25 +223,63 @@ def _ffmpeg_location() -> str | None:
         return None
 
 
+# Official Deno release fetched on Vercel, where the pip package's binary is
+# not bundled. The checksum is Deno's published one for this file.
+DENO_VERSION = "2.9.6"
+DENO_ZIP_URL = f"https://github.com/denoland/deno/releases/download/v{DENO_VERSION}/deno-x86_64-unknown-linux-gnu.zip"
+DENO_ZIP_SHA256 = "394f07f4da2bebe6ce6f1e7ce0fa16429b29b08c35e3fac3fe25972676dff4b2"
+_deno_lock = threading.Lock()
+
+
+def _download_deno(url: str = DENO_ZIP_URL, sha256: str = DENO_ZIP_SHA256) -> str | None:
+    """Download and verify Deno once per server instance into the temp folder."""
+    target = Path(tempfile.gettempdir()) / "convertmusic-bin" / f"deno-{DENO_VERSION}"
+    if target.is_file():
+        return str(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    archive = target.with_name(target.name + ".zip.part")
+    partial = target.with_name(target.name + ".part")
+    try:
+        digest = hashlib.sha256()
+        with urllib.request.urlopen(url, timeout=30) as response, open(archive, "wb") as fh:
+            while chunk := response.read(1 << 20):
+                digest.update(chunk)
+                fh.write(chunk)
+        if digest.hexdigest() != sha256:
+            return None
+        with zipfile.ZipFile(archive) as zf, zf.open("deno") as src, open(partial, "wb") as dst:
+            shutil.copyfileobj(src, dst, 1 << 20)
+        partial.chmod(0o755)
+        partial.replace(target)
+        return str(target)
+    except Exception:  # noqa: BLE001 - without Deno yt-dlp still tries, with fewer formats
+        return None
+    finally:
+        archive.unlink(missing_ok=True)
+        partial.unlink(missing_ok=True)
+
+
 @lru_cache(maxsize=1)
 def _deno_path() -> str | None:
     """Deno runs YouTube's player JavaScript for yt-dlp.
 
     Looked up in: DENO_PATH, the pip `deno` package (local installs), PATH,
-    then the Linux binary npm installs for Vercel (see package.json).
+    and on Vercel (Linux x86-64) the official release, downloaded once.
     """
-    candidates = [os.environ.get("DENO_PATH")]
-    try:
-        import deno
-        candidates.append(deno.find_deno_bin())
-    except Exception:  # noqa: BLE001 - optional dependency
-        pass
-    candidates.append(shutil.which("deno"))
-    candidates.append(str(PROJECT_ROOT / "node_modules" / "@deno" / "linux-x64-glibc" / "deno"))
-    for candidate in candidates:
-        if runnable := _ensure_executable(candidate):
-            return runnable
-    return None
+    with _deno_lock:
+        candidates = [os.environ.get("DENO_PATH")]
+        try:
+            import deno
+            candidates.append(deno.find_deno_bin())
+        except Exception:  # noqa: BLE001 - optional dependency
+            pass
+        candidates.append(shutil.which("deno"))
+        for candidate in candidates:
+            if runnable := _ensure_executable(candidate):
+                return runnable
+        if ON_VERCEL and sys.platform.startswith("linux") and platform.machine() in ("x86_64", "AMD64"):
+            return _download_deno()
+        return None
 
 
 def _cookie_text() -> str | None:

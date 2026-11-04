@@ -132,18 +132,53 @@ def test_ensure_executable_handles_missing_and_ok(tmp_path):
     assert converter._ensure_executable(str(ok)) == str(ok)
 
 
-def test_deno_path_falls_back_to_npm_binary(tmp_path, monkeypatch):
-    fake_root = tmp_path
-    npm_bin = fake_root / "node_modules" / "@deno" / "linux-x64-glibc" / "deno"
-    npm_bin.parent.mkdir(parents=True)
-    npm_bin.write_bytes(b"x")
-    npm_bin.chmod(0o755)
-    monkeypatch.setattr(converter, "PROJECT_ROOT", fake_root)
+def _fake_release(tmp_path, body=b"#!/bin/sh\necho deno\n"):
+    import hashlib
+    import zipfile
+    archive = tmp_path / "deno.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("deno", body)
+    return archive.as_uri(), hashlib.sha256(archive.read_bytes()).hexdigest()
+
+
+def test_download_deno_verifies_and_caches(tmp_path, monkeypatch):
+    monkeypatch.setattr(converter.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+    url, digest = _fake_release(tmp_path)
+    path = converter._download_deno(url, digest)
+    assert path and Path(path).read_bytes().startswith(b"#!/bin/sh")
+    if os.name != "nt":
+        assert os.access(path, os.X_OK)
+    # Second call reuses the cached copy without downloading again.
+    assert converter._download_deno("file:///does/not/exist", digest) == path
+    leftovers = [p.name for p in Path(path).parent.iterdir() if p.name.endswith(".part")]
+    assert leftovers == []
+
+
+def test_download_deno_rejects_bad_checksum(tmp_path, monkeypatch):
+    monkeypatch.setattr(converter.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+    url, _ = _fake_release(tmp_path)
+    assert converter._download_deno(url, "0" * 64) is None
+    assert list((tmp_path / "tmp" / "convertmusic-bin").iterdir()) == []
+
+
+def test_download_deno_survives_network_errors(tmp_path, monkeypatch):
+    monkeypatch.setattr(converter.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+    assert converter._download_deno((tmp_path / "missing.zip").as_uri(), "0" * 64) is None
+
+
+def test_deno_is_downloaded_only_on_vercel(monkeypatch):
     monkeypatch.setattr(converter.shutil, "which", lambda name: None)
     monkeypatch.delenv("DENO_PATH", raising=False)
     monkeypatch.setitem(sys.modules, "deno", None)  # pip package not installed
-    converter._deno_path.cache_clear()
+    monkeypatch.setattr(converter.sys, "platform", "linux")
+    monkeypatch.setattr(converter.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(converter, "_download_deno", lambda: "/tmp/convertmusic-bin/deno-x")
     try:
-        assert converter._deno_path() == str(npm_bin)
+        monkeypatch.setattr(converter, "ON_VERCEL", False)
+        converter._deno_path.cache_clear()
+        assert converter._deno_path() is None
+        monkeypatch.setattr(converter, "ON_VERCEL", True)
+        converter._deno_path.cache_clear()
+        assert converter._deno_path() == "/tmp/convertmusic-bin/deno-x"
     finally:
         converter._deno_path.cache_clear()
