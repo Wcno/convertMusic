@@ -13,7 +13,7 @@ The author (Wilcno) and a few friends. They paste a YouTube link, want the audio
 Convert a YouTube video into a downloadable MP3 in one step. Success: paste a link, see that it is the right video, pick a quality, get the file, with clear feedback while it works and a clear message when it fails.
 
 ## Operating Context
-Deployed on Vercel at https://convert-music-pink.vercel.app/convert and runnable locally with `python app.py` (Flask + yt-dlp, with FFmpeg and Deno installed from pip). Shared with friends, not run as a public service. Each conversion is one streamed request (serverless functions keep no state; 300 s limit). YouTube may block Vercel's IPs; cookies or a proxy are configured through environment variables.
+Deployed on Vercel at https://convert-music-pink.vercel.app/convert and runnable locally with `python app.py` (Flask + yt-dlp, with FFmpeg and Deno installed from pip). Shared with friends, not run as a public service. Each conversion is one streamed request (serverless functions keep no state; 60 s limit per request unless Fluid compute is enabled). YouTube may block Vercel's IPs; cookies or a proxy are configured through environment variables.
 
 ## Capabilities and Constraints
 - Input: a single YouTube video URL (youtube.com, youtu.be, music.youtube.com, shorts).

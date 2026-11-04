@@ -33,8 +33,8 @@ ALLOWED_QUALITIES = ("128", "192", "320")
 DEFAULT_QUALITY = "192"
 
 ON_VERCEL = bool(os.environ.get("VERCEL"))
-# Vercel stops a request after 300 s, so long videos are refused up front there.
-MAX_DURATION = int(os.environ.get("MAX_DURATION_SECONDS") or (30 * 60 if ON_VERCEL else 3 * 3600))
+# Vercel stops a request after maxDuration (60 s here), so long videos are refused up front there.
+MAX_DURATION = int(os.environ.get("MAX_DURATION_SECONDS") or (15 * 60 if ON_VERCEL else 3 * 3600))
 
 # Share of the overall progress bar used by the server side. The browser fills
 # the rest while the finished MP3 travels to it.

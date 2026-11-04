@@ -46,7 +46,7 @@ Open <http://127.0.0.1:5000>.
 The repo is ready for Vercel's zero-config Flask support:
 
 - `app.py` exposes the Flask `app`, which Vercel detects automatically.
-- `vercel.json` allows each request up to 300 seconds (the Hobby plan maximum) and leaves tests and docs out of the bundle.
+- `vercel.json` allows each request up to 60 seconds and leaves tests and docs out of the bundle. That is plenty for songs. For long videos, turn on **Fluid compute** in Vercel → Project → Settings → Functions, then raise `maxDuration` to 300 and set `MAX_DURATION_SECONDS`.
 - `.python-version` pins Python 3.12.
 
 Push to `master` and Vercel builds and deploys it. The page is served at both `/` and `/convert`.
@@ -64,7 +64,7 @@ Other optional variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `MAX_DURATION_SECONDS` | 1800 on Vercel, 10800 locally | Longest video accepted. On Vercel each request must finish within 300 seconds. |
+| `MAX_DURATION_SECONDS` | 900 on Vercel, 10800 locally | Longest video accepted, in seconds. On Vercel each request must finish within `maxDuration`. |
 | `FFMPEG_LOCATION` | – | Path to a specific FFmpeg binary or folder. |
 
 ## Tests
@@ -129,7 +129,7 @@ vercel.json         Function duration and bundle exclusions
 | "YouTube bloqueó la descarga desde este servidor…" | YouTube is blocking the server's IP. Set `YTDLP_COOKIES` or `YTDLP_PROXY` (see above). |
 | "YouTube está limitando las descargas…" | Too many requests from this IP in a short time. Wait a few minutes. |
 | "YouTube no dejó descargar este video…" | YouTube changed something. Update yt-dlp: `pip install -U "yt-dlp[default]"`, then redeploy. |
-| "El video es demasiado largo…" | Raise `MAX_DURATION_SECONDS`, bearing in mind Vercel's 300-second limit per request. |
+| "El video es demasiado largo…" | Raise `MAX_DURATION_SECONDS`, bearing in mind Vercel's time limit per request (see Deploy to Vercel). |
 | "La conexión se cortó antes de terminar…" | The request hit the time limit or the network dropped. Try a shorter video or try again. |
 
 ## Note
