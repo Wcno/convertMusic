@@ -1,4 +1,5 @@
 import base64
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -108,3 +109,41 @@ def test_health_route(client, monkeypatch):
     data = client.get("/api/health").get_json()
     assert data["cookies"] is False
     assert set(data) == {"cookies", "cookies_signed_in", "ffmpeg", "deno", "vercel", "yt_dlp"}
+
+
+# ------------------------------------------------------- bundled binaries
+
+def test_ensure_executable_copies_non_executable_binary(tmp_path, monkeypatch):
+    if os.name == "nt":
+        pytest.skip("execute bits are a POSIX concept")
+    binary = tmp_path / "tool"
+    binary.write_bytes(b"#!/bin/sh\n")
+    binary.chmod(0o644)
+    runnable = converter._ensure_executable(str(binary))
+    assert runnable != str(binary) and os.access(runnable, os.X_OK)
+
+
+def test_ensure_executable_handles_missing_and_ok(tmp_path):
+    assert converter._ensure_executable(None) is None
+    assert converter._ensure_executable(str(tmp_path / "missing")) is None
+    ok = tmp_path / "ok.exe"
+    ok.write_bytes(b"x")
+    ok.chmod(0o755)
+    assert converter._ensure_executable(str(ok)) == str(ok)
+
+
+def test_deno_path_falls_back_to_npm_binary(tmp_path, monkeypatch):
+    fake_root = tmp_path
+    npm_bin = fake_root / "node_modules" / "@deno" / "linux-x64-glibc" / "deno"
+    npm_bin.parent.mkdir(parents=True)
+    npm_bin.write_bytes(b"x")
+    npm_bin.chmod(0o755)
+    monkeypatch.setattr(converter, "PROJECT_ROOT", fake_root)
+    monkeypatch.setattr(converter.shutil, "which", lambda name: None)
+    monkeypatch.delenv("DENO_PATH", raising=False)
+    monkeypatch.setitem(sys.modules, "deno", None)  # pip package not installed
+    converter._deno_path.cache_clear()
+    try:
+        assert converter._deno_path() == str(npm_bin)
+    finally:
+        converter._deno_path.cache_clear()

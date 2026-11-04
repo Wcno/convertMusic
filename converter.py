@@ -185,6 +185,27 @@ def friendly_error(exc: BaseException) -> str:
 # yt-dlp setup
 # --------------------------------------------------------------------------- #
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def _ensure_executable(path: str | None) -> str | None:
+    """Return a runnable copy of a bundled binary.
+
+    Serverless bundles can drop the execute bit and are read-only, so a
+    non-executable binary is copied to the temp folder and marked executable.
+    """
+    if not path or not os.path.isfile(path):
+        return None
+    if os.name == "nt" or os.access(path, os.X_OK):
+        return path
+    copy = Path(tempfile.gettempdir()) / "convertmusic-bin" / Path(path).name
+    if not copy.exists():
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, copy)
+        copy.chmod(0o755)
+    return str(copy)
+
+
 @lru_cache(maxsize=1)
 def _ffmpeg_location() -> str | None:
     """FFMPEG_LOCATION, else FFmpeg on PATH, else the copy bundled by imageio-ffmpeg."""
@@ -194,19 +215,30 @@ def _ffmpeg_location() -> str | None:
         return None  # yt-dlp finds it on its own
     try:
         import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
+        return _ensure_executable(imageio_ffmpeg.get_ffmpeg_exe())
     except Exception:  # noqa: BLE001 - optional dependency
         return None
 
 
 @lru_cache(maxsize=1)
 def _deno_path() -> str | None:
-    """Deno runs YouTube's player JavaScript for yt-dlp. The pip package ships a binary."""
+    """Deno runs YouTube's player JavaScript for yt-dlp.
+
+    Looked up in: DENO_PATH, the pip `deno` package (local installs), PATH,
+    then the Linux binary npm installs for Vercel (see package.json).
+    """
+    candidates = [os.environ.get("DENO_PATH")]
     try:
         import deno
-        return deno.find_deno_bin()
+        candidates.append(deno.find_deno_bin())
     except Exception:  # noqa: BLE001 - optional dependency
-        return shutil.which("deno")
+        pass
+    candidates.append(shutil.which("deno"))
+    candidates.append(str(PROJECT_ROOT / "node_modules" / "@deno" / "linux-x64-glibc" / "deno"))
+    for candidate in candidates:
+        if runnable := _ensure_executable(candidate):
+            return runnable
+    return None
 
 
 def _cookie_text() -> str | None:

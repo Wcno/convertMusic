@@ -3,7 +3,7 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 60,
-      "includeFiles": "{app.py,converter.py,templates/**,static/**}",
+      "includeFiles": "{app.py,converter.py,templates/**,static/**,node_modules/@deno/linux-x64-glibc/deno}",
       "excludeFiles": "{tests/**,scripts/**,docs/**,mp3_files/**,.impeccable/**,.venv/**,**/__pycache__/**}"
     }
   },

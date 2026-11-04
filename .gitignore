@@ -22,3 +22,4 @@ Thumbs.db
 # YouTube cookies are login credentials: never commit them
 *cookies*.txt
 cookies-value*
+node_modules/
