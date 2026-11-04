@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Downloaded audio (never commit songs)
+mp3_files/
+*.mp3
+
+# Design tool scratch output
+.impeccable/review/
+.impeccable/live/
+.impeccable/questions/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/

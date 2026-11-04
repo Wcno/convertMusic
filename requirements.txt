@@ -1,6 +1,7 @@
-Flask==3.0.3
-beautifulsoup4==4.12.3
-requests==2.32.3
-Werkzeug==3.1.1
-pytube==15.0.0
-yt-dlp==2024.10.22
+Flask>=3.1,<4
+# YouTube changes often; keep yt-dlp current with: pip install -U "yt-dlp[default]"
+yt-dlp[default]>=2026.10.26
+# Deno solves YouTube's JavaScript challenges (yt-dlp needs a JS runtime).
+deno>=2.5
+# Bundled FFmpeg binary, used when FFmpeg is not installed (e.g. on Vercel).
+imageio-ffmpeg>=0.6

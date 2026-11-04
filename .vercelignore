@@ -1,0 +1,7 @@
+.venv
+tests
+mp3_files
+.impeccable
+docs
+__pycache__
+.pytest_cache
