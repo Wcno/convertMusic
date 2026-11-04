@@ -1,11 +1,11 @@
-// convertMusic front end: preview, streamed progress, download.
+// convertMusic front end: preview, MP3/MP4 choice, streamed progress, download.
 //
 // POST /api/convert answers with newline-delimited JSON:
 //   {"type":"progress","stage":"download"|"convert","progress":0..0.8}
-//   {"type":"file","filename","title","size"}
+//   {"type":"file","filename","title","size","mimetype"}
 //   {"type":"chunk","data":"<base64>"}  (repeated)
 //   {"type":"done"}  or  {"type":"error","message"}
-// The MP3 is rebuilt in the browser, so the server keeps nothing between requests.
+// The file is rebuilt in the browser, so the server keeps nothing between requests.
 (() => {
     const SEGMENTS = 24;
     const AMBER_FROM = 19;   // segments 20-24 = convert + transfer (last ~20%)
@@ -32,11 +32,34 @@
     let infoFor = "";       // URL that `info` belongs to
     let infoRequest = 0;    // guards against out-of-order responses
     let busy = false;
-    let fileUrl = null;     // object URL of the last MP3
+    let fileUrl = null;     // object URL of the last file
+
+    // Rough bitrates (bits/s) for the size estimate; MP4 adds ~128 kbps of audio.
+    const VIDEO_BITRATE = { 360: 500e3, 720: 1.5e6, 1080: 3e6 };
 
     // ------------------------------------------------------------ helpers
 
-    const quality = () => form.querySelector('input[name="quality"]:checked').value;
+    const format = () => form.querySelector('input[name="format"]:checked').value;
+    const tier = () => form.querySelector('input[name="quality"]:checked').value;
+    // The value shown on the checked quality key, e.g. "320" (kbps) or "720" (p).
+    const qualityValue = () =>
+        form.querySelector('input[name="quality"]:checked').parentElement.querySelector(".sel__num").textContent;
+    const qualityLabel = () => (format() === "mp3" ? `${qualityValue()} kbps` : `${qualityValue()}p`);
+
+    function estimateBytes(seconds) {
+        const q = Number(qualityValue());
+        const bitsPerSecond = format() === "mp3" ? q * 1000 : VIDEO_BITRATE[q] + 128e3;
+        return (seconds * bitsPerSecond) / 8;
+    }
+
+    // Relabel the quality keys, readouts and main key for MP3 or MP4.
+    function applyFormat() {
+        const fmt = format();
+        form.querySelectorAll("[data-mp3]").forEach((el) => { el.textContent = el.dataset[fmt]; });
+        $("q-unit").textContent = fmt === "mp3" ? "kbps" : "resolución";
+        $("bounce-sub").textContent = fmt === "mp3" ? "a MP3" : "a MP4";
+        updateReadouts();
+    }
 
     function formatTime(seconds) {
         if (!Number.isFinite(seconds)) return "–:––";
@@ -54,12 +77,12 @@
     }
 
     function updateReadouts(actualSize) {
-        const q = quality();
-        $("d-kbps").textContent = q;
+        $("d-quality").textContent = format() === "mp3" ? qualityValue() : qualityValue() + "p";
+        $("d-unit").textContent = format() === "mp3" ? "kbps" : format().toUpperCase();
         $("d-time").textContent = formatTime(info?.duration);
         $("d-size").textContent = actualSize
             ? formatSize(actualSize, false)
-            : formatSize(info?.duration * Number(q) * 125, true);
+            : formatSize(estimateBytes(info?.duration), true);
     }
 
     function setDisplay(state, label, title, channel = "", thumbUrl = null) {
@@ -111,7 +134,7 @@
         bounceBtn.querySelector(".key__main").textContent = value ? "Grabando" : "Convertir";
         loadBtn.disabled = value;
         urlInput.readOnly = value;
-        form.querySelectorAll('input[name="quality"]').forEach((r) => (r.disabled = value));
+        form.querySelectorAll('input[name="quality"], input[name="format"]').forEach((r) => (r.disabled = value));
     }
 
     function resetPanel() {
@@ -209,12 +232,13 @@
         }
         if (!(await loadInfo())) return;
 
-        const q = quality();
+        const fmt = format();
+        const label = qualityLabel();
         resetPanel();
         setBusy(true);
         setLamp("audio", "is-busy");
         showInfo("Grabando", "busy");
-        status("Descargando audio…");
+        status(fmt === "mp3" ? "Descargando audio…" : "Descargando video…");
 
         const parts = [];
         let meta = null;
@@ -226,7 +250,7 @@
                 if (msg.stage === "convert") {
                     setLamp("audio", "is-on");
                     setLamp("mp3", "is-busy");
-                    status(`Convirtiendo a MP3 · ${q} kbps…`);
+                    status(fmt === "mp3" ? `Convirtiendo a MP3 · ${label}…` : `Uniendo video y audio en MP4 · ${label}…`);
                     setMeter(msg.progress, { converting: true });
                 } else {
                     setMeter(msg.progress);
@@ -235,7 +259,7 @@
                 meta = msg;
                 setLamp("audio", "is-on");
                 setLamp("mp3", "is-busy");
-                status("Enviando el MP3…");
+                status(`Enviando el ${fmt.toUpperCase()}…`);
                 setMeter(SERVER_SHARE);
             } else if (msg.type === "chunk") {
                 const bytes = base64ToBytes(msg.data);
@@ -255,7 +279,7 @@
                 res = await fetch("/api/convert", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ url: infoFor, quality: q }),
+                    body: JSON.stringify({ url: infoFor, format: fmt, quality: tier() }),
                 });
             } catch {
                 throw new Error("No hay conexión con el servidor. Revisa tu internet e inténtalo de nuevo.");
@@ -275,7 +299,7 @@
             updateReadouts(received);
             status(`Listo: ${meta.filename}`);
             $("done").hidden = false;
-            saveFile(new Blob(parts, { type: "audio/mpeg" }), meta.filename);
+            saveFile(new Blob(parts, { type: meta.mimetype || "application/octet-stream" }), meta.filename);
         } catch (err) {
             setLamp("audio", lamps.audio.classList.contains("is-on") ? "is-on" : "is-fault");
             setLamp("mp3", "is-fault");
@@ -299,6 +323,8 @@
 
     form.querySelectorAll('input[name="quality"]').forEach((radio) =>
         radio.addEventListener("change", () => updateReadouts()));
+    form.querySelectorAll('input[name="format"]').forEach((radio) =>
+        radio.addEventListener("change", applyFormat));
 
     let debounce;
     urlInput.addEventListener("input", () => {
@@ -328,5 +354,6 @@
 
     // Initial state (a server-rendered error from the no-JS fallback keeps its message).
     if (!$("fault").hidden) display.dataset.state = "error";
+    applyFormat(); // the browser may restore MP4 after a reload
     setMeter(0);
 })();

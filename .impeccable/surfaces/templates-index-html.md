@@ -10,7 +10,7 @@ related_targets: ["static/styles.css","static/app.js"]
 Scope: the single page of the app. Visitor mode: Operate.
 Audience: the author and friends converting an occasional YouTube link to MP3.
 Task: paste link → confirm preview → choose bitrate → download. States: idle, fetching info, ready, converting (real progress), done, error.
-Constraints: Spanish copy, keep "By: Wilcno", no external network assets beyond Google Fonts; works at 390px.
+Constraints: Spanish copy, keep "By: wcno", no external network assets beyond Google Fonts; works at 390px.
 
 ## Direction contract
 

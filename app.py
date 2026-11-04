@@ -1,5 +1,6 @@
 import base64
 import json
+from pathlib import Path
 from urllib.parse import quote
 
 from flask import Flask, Response, jsonify, render_template, request
@@ -14,8 +15,18 @@ STREAM_HEADERS = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
 
 
 def _attachment(filename: str) -> str:
-    ascii_name = filename.encode("ascii", "ignore").decode().replace('"', "").strip() or "audio.mp3"
+    ascii_name = filename.encode("ascii", "ignore").decode().replace('"', "").strip()
+    if not ascii_name or ascii_name.startswith("."):
+        ascii_name = "download" + Path(filename).suffix
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+
+
+def _read_request(data):
+    """Validate url, format and quality from a JSON body or a form."""
+    url = converter.normalize_url(data.get("url"))
+    fmt = converter.normalize_format(data.get("format"))
+    quality = converter.normalize_quality(data.get("quality"), fmt)
+    return url, fmt, quality
 
 
 def _read_chunks(path, size=CHUNK):
@@ -38,7 +49,8 @@ def _ndjson_stream(events):
             if isinstance(event, Progress):
                 yield line({"type": "progress", "stage": event.stage, "progress": event.fraction})
             else:
-                yield line({"type": "file", "filename": event.filename, "title": event.title, "size": event.size})
+                yield line({"type": "file", "filename": event.filename, "title": event.title,
+                            "size": event.size, "mimetype": event.mimetype})
                 for chunk in _read_chunks(event.path):
                     yield line({"type": "chunk", "data": base64.b64encode(chunk).decode("ascii")})
         yield line({"type": "done"})
@@ -65,27 +77,24 @@ def api_info():
 
 @app.post("/api/convert")
 def api_convert():
-    data = request.get_json(silent=True) or request.form
     try:
-        url = converter.normalize_url(data.get("url"))
-        quality = converter.normalize_quality(data.get("quality"))
+        url, fmt, quality = _read_request(request.get_json(silent=True) or request.form)
     except ConversionError as exc:
         return jsonify(error=str(exc)), 400
-    events = converter.convert(url, quality)
+    events = converter.convert(url, fmt, quality)
     return Response(_ndjson_stream(events), mimetype="application/x-ndjson", headers=STREAM_HEADERS)
 
 
 @app.post("/convert")
 def convert_form():
-    """Fallback for browsers without JavaScript: convert, then send the MP3 itself."""
+    """Fallback for browsers without JavaScript: convert, then send the file itself."""
     raw_url = request.form.get("url", "")
     try:
-        url = converter.normalize_url(raw_url)
-        quality = converter.normalize_quality(request.form.get("quality"))
+        url, fmt, quality = _read_request(request.form)
     except ConversionError as exc:
         return render_template("index.html", error=str(exc), url=raw_url), 400
 
-    events = converter.convert(url, quality)
+    events = converter.convert(url, fmt, quality)
     try:
         result = next(e for e in events if isinstance(e, Result))
     except ConversionError as exc:
@@ -98,7 +107,7 @@ def convert_form():
             events.close()  # deletes the temporary folder
 
     headers = {**STREAM_HEADERS, "Content-Disposition": _attachment(result.filename), "Content-Length": str(result.size)}
-    return Response(body(), mimetype="audio/mpeg", headers=headers)
+    return Response(body(), mimetype=result.mimetype, headers=headers)
 
 
 if __name__ == "__main__":

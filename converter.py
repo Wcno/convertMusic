@@ -1,11 +1,14 @@
-"""YouTube -> MP3 conversion.
+"""YouTube -> MP3 / MP4 conversion.
 
 Public interface:
-    normalize_url(raw) / normalize_quality(raw)   validate user input
-    fetch_info(url)                               metadata for the preview
-    convert(url, quality)                         run one conversion, yielding
-                                                  Progress events and one Result
-    ConversionError                               message safe to show the user
+    normalize_url(raw)                 validate a YouTube link
+    normalize_format(raw)              "mp3" or "mp4"
+    normalize_quality(raw, fmt)        tier ("low"/"std"/"high") or explicit value
+                                       -> "128"/"192"/"320" (mp3) or "360"/"720"/"1080" (mp4)
+    fetch_info(url)                    metadata for the preview
+    convert(url, fmt, quality)         run one conversion, yielding Progress
+                                       events and then exactly one Result
+    ConversionError                    message safe to show the user
 
 Everything else (yt-dlp options, FFmpeg/Deno discovery, cookies, proxy,
 threads, temporary folders, error wording) stays inside this module.
@@ -29,15 +32,26 @@ from urllib.parse import parse_qs, urlparse
 
 import yt_dlp
 
-ALLOWED_QUALITIES = ("128", "192", "320")
-DEFAULT_QUALITY = "192"
+FORMATS = ("mp3", "mp4")
+DEFAULT_FORMAT = "mp3"
+TIERS = ("low", "std", "high")
+DEFAULT_TIER = "std"
+QUALITIES = {
+    "mp3": {"low": "128", "std": "192", "high": "320"},  # kbps
+    "mp4": {"low": "360", "std": "720", "high": "1080"},  # max video height
+}
+MIME_TYPES = {"mp3": "audio/mpeg", "mp4": "video/mp4"}
 
 ON_VERCEL = bool(os.environ.get("VERCEL"))
-# Vercel stops a request after maxDuration (60 s here), so long videos are refused up front there.
-MAX_DURATION = int(os.environ.get("MAX_DURATION_SECONDS") or (15 * 60 if ON_VERCEL else 3 * 3600))
+# Vercel stops a request after maxDuration (60 s) and /tmp holds ~500 MB,
+# so long videos are refused up front there. Video is far larger than audio.
+MAX_DURATION = {
+    "mp3": int(os.environ.get("MAX_DURATION_SECONDS") or (15 * 60 if ON_VERCEL else 3 * 3600)),
+    "mp4": int(os.environ.get("MAX_VIDEO_DURATION_SECONDS") or (10 * 60 if ON_VERCEL else 3 * 3600)),
+}
 
 # Share of the overall progress bar used by the server side. The browser fills
-# the rest while the finished MP3 travels to it.
+# the rest while the finished file travels to it.
 DOWNLOAD_SHARE = 0.8
 
 _YOUTUBE_HOSTS = {
@@ -67,11 +81,12 @@ class Result:
     filename: str
     title: str
     size: int
+    mimetype: str
 
 
-# A downloader turns (url, quality, out_dir, report) into (mp3 path, info).
+# A downloader turns (url, fmt, quality, out_dir, report) into (file path, info).
 # `report(stage, fraction_or_None)` is called from the downloader's thread.
-Downloader = Callable[[str, str, Path, Callable[[str, "float | None"], None]], "tuple[Path, dict]"]
+Downloader = Callable[[str, str, str, Path, Callable[[str, "float | None"], None]], "tuple[Path, dict]"]
 
 
 # --------------------------------------------------------------------------- #
@@ -106,17 +121,31 @@ def normalize_url(raw: str | None) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
-def normalize_quality(raw: str | None) -> str:
-    quality = (raw or DEFAULT_QUALITY).strip().lower().removesuffix("k")
-    if quality not in ALLOWED_QUALITIES:
-        raise ConversionError("Calidad no válida. Elige 128, 192 o 320 kbps.")
-    return quality
+def normalize_format(raw: str | None) -> str:
+    fmt = (raw or DEFAULT_FORMAT).strip().lower().lstrip(".")
+    if fmt not in FORMATS:
+        raise ConversionError("Formato no válido. Elige MP3 (audio) o MP4 (video).")
+    return fmt
 
 
-def safe_filename(title: str) -> str:
+def normalize_quality(raw: str | None, fmt: str = DEFAULT_FORMAT) -> str:
+    """Accept a tier (low/std/high) or an explicit value such as 320, 320k, 720 or 720p."""
+    table = QUALITIES[fmt]
+    value = (raw or DEFAULT_TIER).strip().lower()
+    if value in table:
+        return table[value]
+    value = value.removesuffix("kbps").removesuffix("k").removesuffix("p")
+    if value in table.values():
+        return value
+    options = ", ".join(table.values())
+    unit = "kbps" if fmt == "mp3" else "p"
+    raise ConversionError(f"Calidad no válida para {fmt.upper()}. Elige {options} {unit}.")
+
+
+def safe_filename(title: str, ext: str = "mp3") -> str:
     """A filename that works on Windows, macOS and Linux."""
     name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", title).strip(" .")
-    return (name or "audio")[:150] + ".mp3"
+    return f"{(name or 'audio')[:150]}.{ext}"
 
 
 def friendly_error(exc: BaseException) -> str:
@@ -125,8 +154,9 @@ def friendly_error(exc: BaseException) -> str:
         return str(exc)
     text = str(exc).lower()
     if "not a bot" in text:
-        return ("YouTube bloqueó la descarga desde este servidor (pide verificación anti-bots). "
-                "Configura cookies o un proxy: lo explica el README.")
+        return ("YouTube no permite descargas desde servidores en la nube como este. "
+                "Usa la app en tu ordenador (python app.py) o añade tus cookies de YouTube "
+                "en el servidor (variable YTDLP_COOKIES). Lo explica el README.")
     if "429" in text or "too many requests" in text:
         return "YouTube está limitando las descargas desde este servidor. Espera unos minutos."
     if "ffmpeg" in text or "ffprobe" in text:
@@ -135,8 +165,12 @@ def friendly_error(exc: BaseException) -> str:
         return "Este video es privado."
     if "sign in" in text or ("age" in text and "confirm" in text):
         return "YouTube pide iniciar sesión para este video (restricción de edad o similar)."
+    if "requested format is not available" in text:
+        return "Este video no está disponible en esa calidad. Prueba con una calidad menor."
     if "unavailable" in text or "not available" in text or "removed" in text:
         return "Este video no está disponible."
+    if "no space left" in text:
+        return "El archivo es demasiado grande para este servidor. Prueba con menos calidad o un video más corto."
     if "urlopen" in text or "timed out" in text or "network" in text or "getaddrinfo" in text:
         return "No hay conexión con YouTube. Revisa tu internet e inténtalo de nuevo."
     return "YouTube no dejó descargar este video. Prueba con otro enlace o actualiza yt-dlp."
@@ -162,7 +196,7 @@ def _ffmpeg_location() -> str | None:
 
 @lru_cache(maxsize=1)
 def _deno_path() -> str | None:
-    """Deno solves YouTube's JavaScript challenges. The pip package ships a binary."""
+    """Deno runs YouTube's player JavaScript for yt-dlp. The pip package ships a binary."""
     try:
         import deno
         return deno.find_deno_bin()
@@ -172,7 +206,7 @@ def _deno_path() -> str | None:
 
 @lru_cache(maxsize=1)
 def _cookie_file() -> str | None:
-    """YTDLP_COOKIES holds the text of a cookies.txt file (for servers YouTube blocks)."""
+    """YTDLP_COOKIES holds the text of the owner's cookies.txt file."""
     cookies = os.environ.get("YTDLP_COOKIES", "").strip()
     if not cookies:
         return None
@@ -195,12 +229,33 @@ def _base_options() -> dict:
     return opts
 
 
-def _check_duration(info: dict) -> None:
-    duration = info.get("duration") or 0
+def _check_duration(info: dict, fmt: str = DEFAULT_FORMAT) -> None:
     if info.get("is_live"):
         raise ConversionError("Los directos no se pueden convertir. Espera a que termine la emisión.")
-    if duration > MAX_DURATION:
-        raise ConversionError(f"El video es demasiado largo. El máximo aquí es {MAX_DURATION // 60} minutos.")
+    limit = MAX_DURATION[fmt]
+    if (info.get("duration") or 0) > limit:
+        raise ConversionError(
+            f"El video es demasiado largo para {fmt.upper()}. El máximo aquí es {limit // 60} minutos.")
+
+
+def _format_options(fmt: str, quality: str) -> dict:
+    if fmt == "mp3":
+        return {
+            "format": "bestaudio/best",
+            "postprocessors": [
+                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": quality},
+                {"key": "FFmpegMetadata"},
+            ],
+        }
+    height = int(quality)
+    return {
+        # Best video up to the chosen height plus best audio, merged into MP4.
+        # H.264 + AAC are preferred so the file plays everywhere.
+        "format": f"bv*[height<={height}]+ba/b[height<={height}]/b",
+        "format_sort": [f"res:{height}", "vcodec:h264", "acodec:aac"],
+        "merge_output_format": "mp4",
+        "postprocessors": [{"key": "FFmpegMetadata"}],
+    }
 
 
 def fetch_info(url: str) -> dict:
@@ -210,7 +265,8 @@ def fetch_info(url: str) -> dict:
             info = ydl.extract_info(url, download=False)
     except Exception as exc:  # noqa: BLE001
         raise ConversionError(friendly_error(exc)) from exc
-    _check_duration(info)
+    if info.get("is_live"):
+        raise ConversionError("Los directos no se pueden convertir. Espera a que termine la emisión.")
     return {
         "id": info.get("id"),
         "title": info.get("title") or "Sin título",
@@ -221,36 +277,45 @@ def fetch_info(url: str) -> dict:
     }
 
 
-def ytdlp_downloader(url: str, quality: str, out_dir: Path, report) -> tuple[Path, dict]:
-    """The real downloader: fetch the best audio and encode it to MP3 with FFmpeg."""
+def ytdlp_downloader(url: str, fmt: str, quality: str, out_dir: Path, report) -> tuple[Path, dict]:
+    """The real downloader: fetch from YouTube and produce an MP3 or MP4 with FFmpeg."""
+    # MP4 downloads two streams (video, then audio); weight them by typical size.
+    weights = [0.85, 0.15] if fmt == "mp4" else [1.0]
+    parts: list[str] = []
 
     def progress_hook(d):
+        name = d.get("filename") or d.get("tmpfilename") or ""
+        if name and name not in parts:
+            parts.append(name)
+        index = min(max(len(parts) - 1, 0), len(weights) - 1)
+        done_share = sum(weights[:index])
         if d.get("status") == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate")
-            report("download", (d.get("downloaded_bytes") or 0) / total if total else None)
+            fraction = (d.get("downloaded_bytes") or 0) / total if total else None
+            report("download", None if fraction is None else done_share + weights[index] * fraction)
         elif d.get("status") == "finished":
+            report("download", done_share + weights[index])
+
+    def postprocessor_hook(d):
+        if d.get("status") == "started":
             report("convert", None)
 
     opts = {
         **_base_options(),
-        "format": "bestaudio/best",
+        **_format_options(fmt, quality),
         "outtmpl": str(out_dir / "%(id)s.%(ext)s"),
         "progress_hooks": [progress_hook],
-        "postprocessor_hooks": [lambda d: d.get("status") == "started" and report("convert", None)],
-        "postprocessors": [
-            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": quality},
-            {"key": "FFmpegMetadata"},
-        ],
+        "postprocessor_hooks": [postprocessor_hook],
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
-        _check_duration(info)
+        _check_duration(info, fmt)
         info = ydl.process_ie_result(info, download=True)
 
-    mp3s = sorted(out_dir.glob("*.mp3"))
-    if not mp3s:
-        raise ConversionError("La conversión terminó sin generar un MP3.")
-    return mp3s[0], info
+    files = sorted(out_dir.glob(f"*.{fmt}"))
+    if not files:
+        raise ConversionError(f"La conversión terminó sin generar un {fmt.upper()}.")
+    return files[0], info
 
 
 # --------------------------------------------------------------------------- #
@@ -260,13 +325,14 @@ def ytdlp_downloader(url: str, quality: str, out_dir: Path, report) -> tuple[Pat
 _FINISHED = object()
 
 
-def convert(url: str, quality: str, *, downloader: Downloader | None = None) -> Iterator[Progress | Result]:
+def convert(url: str, fmt: str, quality: str, *, downloader: Downloader | None = None) -> Iterator[Progress | Result]:
     """Run one conversion in its own temporary folder.
 
-    Yields Progress events (monotonic, at most one per half percent) and then
-    exactly one Result. The file at Result.path is deleted when the generator
-    finishes or is closed, so read it before advancing past the Result.
-    Failures raise ConversionError with a user-facing message.
+    `fmt` and `quality` must already be normalized. Yields Progress events
+    (monotonic, at most one per half percent) and then exactly one Result.
+    The file at Result.path is deleted when the generator finishes or is
+    closed, so read it before advancing past the Result. Failures raise
+    ConversionError with a user-facing message.
     """
     downloader = downloader or ytdlp_downloader
     work_dir = Path(tempfile.mkdtemp(prefix="convertmusic-"))
@@ -278,7 +344,7 @@ def convert(url: str, quality: str, *, downloader: Downloader | None = None) -> 
 
     def run() -> None:
         try:
-            outcome["value"] = downloader(url, quality, work_dir, report)
+            outcome["value"] = downloader(url, fmt, quality, work_dir, report)
         except BaseException as exc:  # noqa: BLE001 - handed to the caller below
             outcome["error"] = exc
         finally:
@@ -305,7 +371,13 @@ def convert(url: str, quality: str, *, downloader: Downloader | None = None) -> 
             raise ConversionError(friendly_error(outcome["error"])) from outcome["error"]
         path, info = outcome["value"]
         path = Path(path)
-        title = (info or {}).get("title") or "audio"
-        yield Result(path=path, filename=safe_filename(title), title=title, size=path.stat().st_size)
+        title = (info or {}).get("title") or ("audio" if fmt == "mp3" else "video")
+        yield Result(
+            path=path,
+            filename=safe_filename(title, fmt),
+            title=title,
+            size=path.stat().st_size,
+            mimetype=MIME_TYPES[fmt],
+        )
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

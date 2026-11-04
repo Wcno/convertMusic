@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>convertMusic · YouTube a MP3</title>
-    <meta name="description" content="Convierte un video de YouTube en MP3: pega el enlace, elige la calidad y descarga.">
+    <title>convertMusic · YouTube a MP3 y MP4</title>
+    <meta name="description" content="Convierte un video de YouTube en MP3 (audio) o MP4 (video): pega el enlace, elige la calidad y descarga.">
     <meta name="color-scheme" content="light">
     <meta name="theme-color" content="#34332f">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8622c'/%3E%3Crect x='7' y='17' width='3' height='8' fill='%231c1c1a'/%3E%3Crect x='12' y='12' width='3' height='13' fill='%231c1c1a'/%3E%3Crect x='17' y='8' width='3' height='17' fill='%231c1c1a'/%3E%3Crect x='22' y='14' width='3' height='11' fill='%231c1c1a'/%3E%3C/svg%3E">
@@ -22,7 +22,7 @@
     <form class="plate" id="unit" action="{{ url_for('convert_form') }}" method="post" novalidate>
         <header class="plate__head">
             <h1 class="brand">convert<span>Music</span></h1>
-            <p class="model">Unidad de exportación <b>MP3·320</b></p>
+            <p class="model">Unidad de exportación <b>MP3&nbsp;·&nbsp;MP4</b></p>
         </header>
 
         <div class="patch">
@@ -44,7 +44,7 @@
                     <p class="display__channel" id="d-channel">El video aparecerá aquí</p>
                     <dl class="readouts">
                         <div><dt>Duración</dt><dd id="d-time">–:––</dd></div>
-                        <div><dt>Calidad</dt><dd><span id="d-kbps">192</span><small>kbps</small></dd></div>
+                        <div><dt>Calidad</dt><dd><span id="d-quality">192</span><small id="d-unit">kbps</small></dd></div>
                         <div><dt>Tamaño</dt><dd id="d-size">–</dd></div>
                     </dl>
                 </div>
@@ -52,17 +52,25 @@
 
             <div class="controls">
                 <fieldset class="selector">
-                    <legend class="legend">Calidad · kbps</legend>
+                    <legend class="legend">Formato</legend>
+                    <div class="switch">
+                        <label class="sel switch__pos"><input type="radio" name="format" value="mp3" checked><span class="sel__led"></span><span class="switch__name">MP3</span><span class="sel__sub">Audio</span></label>
+                        <label class="sel switch__pos"><input type="radio" name="format" value="mp4"><span class="sel__led"></span><span class="switch__name">MP4</span><span class="sel__sub">Video</span></label>
+                    </div>
+                </fieldset>
+
+                <fieldset class="selector">
+                    <legend class="legend">Calidad · <span id="q-unit">kbps</span></legend>
                     <div class="selector__keys">
-                        <label class="sel"><input type="radio" name="quality" value="128"><span class="sel__led"></span><span class="sel__num">128</span><span class="sel__sub">Ligero</span></label>
-                        <label class="sel"><input type="radio" name="quality" value="192" checked><span class="sel__led"></span><span class="sel__num">192</span><span class="sel__sub">Estándar</span></label>
-                        <label class="sel"><input type="radio" name="quality" value="320"><span class="sel__led"></span><span class="sel__num">320</span><span class="sel__sub">Máxima</span></label>
+                        <label class="sel"><input type="radio" name="quality" value="low"><span class="sel__led"></span><span class="sel__num" data-mp3="128" data-mp4="360">128</span><span class="sel__sub" data-mp3="Ligero" data-mp4="Ligero">Ligero</span></label>
+                        <label class="sel"><input type="radio" name="quality" value="std" checked><span class="sel__led"></span><span class="sel__num" data-mp3="192" data-mp4="720">192</span><span class="sel__sub" data-mp3="Estándar" data-mp4="HD">Estándar</span></label>
+                        <label class="sel"><input type="radio" name="quality" value="high"><span class="sel__led"></span><span class="sel__num" data-mp3="320" data-mp4="1080">320</span><span class="sel__sub" data-mp3="Máxima" data-mp4="Full HD">Máxima</span></label>
                     </div>
                 </fieldset>
 
                 <button class="key key--bounce" type="submit" id="bounce">
                     <span class="key__main">Convertir</span>
-                    <span class="key__sub">a MP3</span>
+                    <span class="key__sub" id="bounce-sub">a MP3</span>
                 </button>
             </div>
         </div>
@@ -70,8 +78,8 @@
         <section class="meter" aria-label="Progreso">
             <ol class="lamps">
                 <li class="lamp" id="lamp-link">Enlace</li>
-                <li class="lamp" id="lamp-audio">Audio</li>
-                <li class="lamp" id="lamp-mp3">MP3</li>
+                <li class="lamp" id="lamp-audio">Descarga</li>
+                <li class="lamp" id="lamp-mp3">Archivo</li>
             </ol>
             <div class="ladder-wrap">
                 <div class="ladder" id="ladder" role="progressbar" aria-label="Progreso de la conversión"
@@ -102,7 +110,7 @@
         </footer>
     </form>
 
-    <div class="ear ear--credit"><i class="screw" aria-hidden="true"></i><span class="ear__credit">By: Wilcno</span><i class="screw" aria-hidden="true"></i></div>
+    <div class="ear ear--credit"><i class="screw" aria-hidden="true"></i><span class="ear__credit">By: wcno</span><i class="screw" aria-hidden="true"></i></div>
 </main>
 </body>
 </html>

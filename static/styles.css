@@ -370,11 +370,17 @@ body {
 
 /* -------------------------------------------------------------- selector */
 
-.controls { display: grid; gap: 18px; align-content: space-between; }
+.controls { display: grid; gap: 16px; align-content: space-between; }
 
 .selector { border: 0; margin: 0; padding: 0; min-width: 0; }
 
 .selector__keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+
+/* MP3 / MP4: a two-position switch built from the same keys. */
+.switch { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.switch__pos { grid-template-columns: auto 1fr; grid-template-rows: auto auto; justify-items: start; align-items: center; column-gap: 10px; padding: 10px 12px; }
+.switch__pos .sel__led { grid-row: 1 / 3; width: 6px; height: 24px; }
+.switch__name { font-size: 1.125rem; font-weight: 800; font-variation-settings: "wdth" 110; letter-spacing: .04em; line-height: 1; pointer-events: none; }
 
 .sel {
     position: relative;
@@ -531,7 +537,8 @@ body {
 
 @media (max-width: 900px) {
     .deck { grid-template-columns: 1fr; }
-    .controls { grid-template-columns: minmax(0, 1fr) minmax(150px, 38%); align-items: end; }
+    .controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }
+    .controls .key--bounce { grid-column: 1 / -1; }
     .key--bounce { min-height: 76px; }
 }
 

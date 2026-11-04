@@ -18,22 +18,26 @@ FAKE_INFO = {
 }
 
 # Large enough to span several streamed chunks.
-FAKE_MP3_SIZE = 3 * app_module.CHUNK + 1234
+FAKE_FILE_SIZE = 3 * app_module.CHUNK + 1234
+MAGIC = {"mp3": b"ID3", "mp4": b"\x00\x00\x00\x18ftypmp42"}
 
 
-def fake_downloader(url, quality, out_dir, report):
-    """Stands in for yt-dlp: reports progress and writes a fake MP3."""
+def fake_downloader(url, fmt, quality, out_dir, report):
+    """Stands in for yt-dlp: reports progress and writes a fake MP3 or MP4.
+
+    The file starts with the format's magic bytes followed by the quality,
+    so tests can check what was requested.
+    """
     report("download", None)
     report("download", 0.5)
     report("download", 1.0)
     report("convert", None)
-    path = out_dir / "jNQXAC9IVRw.mp3"
-    body = (b"ID3" + quality.encode()).ljust(FAKE_MP3_SIZE, b"\x07")
-    path.write_bytes(body)
+    path = out_dir / f"jNQXAC9IVRw.{fmt}"
+    path.write_bytes((MAGIC[fmt] + quality.encode()).ljust(FAKE_FILE_SIZE, b"\x07"))
     return path, {"title": FAKE_INFO["title"]}
 
 
-def failing_downloader(url, quality, out_dir, report):
+def failing_downloader(url, fmt, quality, out_dir, report):
     report("download", 0.2)
     raise RuntimeError("ERROR: [youtube] abc: Video unavailable")
 
