@@ -18,3 +18,7 @@ mp3_files/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# YouTube cookies are login credentials: never commit them
+*cookies*.txt
+cookies-value*

@@ -46,10 +46,30 @@ Open <http://127.0.0.1:5000>.
 YouTube refuses most requests that come from data centres (Vercel, AWS, Google Cloud and similar) with **"Sign in to confirm you're not a bot"**. This is YouTube's decision, not a bug in the app, and it can't be fixed in code. When it happens the page says so and suggests the options below.
 
 1. **Run it on your own computer** (above). Home connections are normally not blocked, so this is the simplest and most reliable option.
-2. **Sign the server in as you.** Export the cookies of a browser where you are signed in to YouTube as a `cookies.txt` file ([yt-dlp's guide](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies)), and paste its full text into a `YTDLP_COOKIES` environment variable in **Vercel → Project → Settings → Environment Variables**, then redeploy. Downloads then use your account, so:
-   - treat that variable like a password;
-   - YouTube may still refuse, and can flag accounts used this way;
-   - cookies expire, so you'll need to refresh them now and then.
+2. **Sign the server in as you** with your YouTube cookies (steps below). Downloads then use your account, so:
+   - treat the cookies like a password;
+   - YouTube may still refuse, and can flag accounts used this way, so a spare Google account is safer;
+   - cookies expire, so you'll need to refresh them now and then. The page tells you when ("YouTube rechazó las cookies…").
+
+### Set up cookies on Vercel
+
+1. Install the **Get cookies.txt LOCALLY** extension (Chrome/Edge) or **cookies.txt** (Firefox), and allow it in private windows.
+2. Open a **private/incognito window**, sign in to YouTube, then go to <https://www.youtube.com/robots.txt>. This follows [yt-dlp's advice](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies), so YouTube doesn't replace the cookies straight away.
+3. Use the extension to export the cookies for `youtube.com` (Netscape format), then **close the private window** without signing out.
+4. Turn the file into one safe line. The script keeps only YouTube/Google cookies and checks you were signed in:
+
+   ```bash
+   python scripts/prepare_cookies.py path/to/youtube.com_cookies.txt --out cookies-value.txt
+   ```
+
+5. In **Vercel → Project → Settings → Environment Variables**, add `YTDLP_COOKIES` (Production) and paste the contents of `cookies-value.txt`. Or use the CLI:
+
+   ```bash
+   npx vercel env add YTDLP_COOKIES production < cookies-value.txt
+   ```
+
+6. Redeploy. To check it worked, open <https://convert-music-pink.vercel.app/api/health>: `"cookies": true` and `"cookies_signed_in": true` mean the server has them (their contents are never shown).
+7. Delete `youtube.com_cookies.txt` and `cookies-value.txt` from your computer. Both are git-ignored, but they are still credentials.
 
 Even when downloads are allowed, YouTube may briefly limit an IP that downloads a lot (HTTP 429). The page shows "YouTube está limitando las descargas…"; wait a few minutes.
 
@@ -81,13 +101,13 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-102 tests cover:
+115 tests cover:
 
 - link validation;
 - formats and quality tiers;
 - file naming, including non-Latin titles;
 - error messages;
-- configuration: cookies, proxy, bundled FFmpeg and Deno;
+- configuration: cookies (all accepted formats, the prep script, expiry message), proxy, bundled FFmpeg and Deno;
 - progress and cleanup of a conversion;
 - every route and the streamed reply format, for MP3 and MP4;
 - the no-JavaScript fallback.
@@ -122,6 +142,7 @@ The browser rebuilds the file from the chunks and saves it, so "Descargar de nue
 | Route | Purpose |
 |---|---|
 | `GET /`, `GET /convert` | The page |
+| `GET /api/health` | Whether cookies, FFmpeg and Deno are available (never their contents) |
 | `GET /api/info?url=` | Video metadata for the preview |
 | `POST /api/convert` | Convert. JSON or form body: `url`, `format` (`mp3` or `mp4`, default `mp3`), `quality` (`low`, `std` or `high`, default `std`; or an exact value such as `320` or `720p`) |
 | `POST /convert` | No-JavaScript fallback: converts and returns the file itself |
@@ -143,6 +164,7 @@ templates/index.html
 static/styles.css   Rack-unit design
 static/app.js       Preview, format switch, stream reading, progress meter and download
 tests/              pytest suite (fake downloader, no network)
+scripts/prepare_cookies.py   Turns an exported cookies.txt into the YTDLP_COOKIES value
 api/index.py        Vercel entry point (imports app)
 vercel.json         Function duration, bundled files, rewrite to api/index.py
 ```
@@ -153,7 +175,8 @@ vercel.json         Function duration, bundled files, rewrite to api/index.py
 
 | Message | Fix |
 |---|---|
-| "YouTube no permite descargas desde servidores en la nube…" | See [YouTube and cloud servers](#youtube-and-cloud-servers). |
+| "YouTube no permite descargas desde servidores en la nube…" | No cookies on the server. See [Set up cookies on Vercel](#set-up-cookies-on-vercel). |
+| "YouTube rechazó las cookies del servidor…" | The cookies expired or were revoked. Export new ones and update `YTDLP_COOKIES`. |
 | "YouTube está limitando las descargas…" | Too many requests from this IP in a short time. Wait a few minutes. |
 | "Este video no está disponible en esa calidad…" | Choose a lower quality. |
 | "El video es demasiado largo…" | Raise `MAX_DURATION_SECONDS` / `MAX_VIDEO_DURATION_SECONDS`, bearing in mind Vercel's time limit per request. |

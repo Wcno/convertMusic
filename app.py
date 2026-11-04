@@ -66,6 +66,12 @@ def index():
     return render_template("index.html")
 
 
+@app.get("/api/health")
+def api_health():
+    """Shows whether cookies, FFmpeg and Deno are available (never their contents)."""
+    return jsonify(converter.status())
+
+
 @app.get("/api/info")
 def api_info():
     try:

@@ -18,6 +18,8 @@ and on a stateless serverless function (Vercel) alike.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import os
 import queue
 import re
@@ -153,6 +155,9 @@ def friendly_error(exc: BaseException) -> str:
     if isinstance(exc, ConversionError):
         return str(exc)
     text = str(exc).lower()
+    if "not a bot" in text and _cookie_text():
+        return ("YouTube rechazó las cookies del servidor (seguramente caducaron). "
+                "Exporta unas nuevas y actualiza YTDLP_COOKIES en Vercel. Lo explica el README.")
     if "not a bot" in text:
         return ("YouTube no permite descargas desde servidores en la nube como este. "
                 "Usa la app en tu ordenador (python app.py) o añade tus cookies de YouTube "
@@ -204,16 +209,46 @@ def _deno_path() -> str | None:
         return shutil.which("deno")
 
 
+def _cookie_text() -> str | None:
+    """The owner's cookies.txt from YTDLP_COOKIES: plain text or base64 (scripts/prepare_cookies.py)."""
+    raw = os.environ.get("YTDLP_COOKIES", "").strip()
+    if not raw:
+        return None
+    if "\t" not in raw and "\\t" not in raw:
+        try:
+            raw = base64.b64decode(raw, validate=True).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError):
+            return None
+    text = raw.replace("\\n", "\n").replace("\\t", "\t")
+    lines = [line for line in text.splitlines() if line.count("\t") >= 6]
+    return text if lines else None
+
+
 @lru_cache(maxsize=1)
 def _cookie_file() -> str | None:
-    """YTDLP_COOKIES holds the text of the owner's cookies.txt file."""
-    cookies = os.environ.get("YTDLP_COOKIES", "").strip()
-    if not cookies:
+    """Write the cookies to a temporary file for yt-dlp (it also saves refreshed cookies there)."""
+    text = _cookie_text()
+    if not text:
         return None
     fd, path = tempfile.mkstemp(prefix="convertmusic-cookies-", suffix=".txt")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(cookies.replace("\\n", "\n") + "\n")
+        if not text.startswith("# Netscape"):
+            fh.write("# Netscape HTTP Cookie File\n")
+        fh.write(text.rstrip("\n") + "\n")
     return path
+
+
+def status() -> dict:
+    """What this server has available, without revealing any secret."""
+    text = _cookie_text() or ""
+    return {
+        "cookies": bool(text),
+        "cookies_signed_in": any(name in text for name in ("LOGIN_INFO", "__Secure-3PSID", "SAPISID")),
+        "ffmpeg": bool(_ffmpeg_location() or shutil.which("ffmpeg")),
+        "deno": bool(_deno_path()),
+        "vercel": ON_VERCEL,
+        "yt_dlp": yt_dlp.version.__version__,
+    }
 
 
 def _base_options() -> dict:
