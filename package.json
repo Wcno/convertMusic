@@ -1,0 +1,8 @@
+{
+  "name": "convert-music",
+  "private": true,
+  "description": "Python/Flask app. This file only pins the Node.js version Vercel's build tooling uses.",
+  "engines": {
+    "node": "24.x"
+  }
+}
